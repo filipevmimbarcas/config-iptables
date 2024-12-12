@@ -72,32 +72,6 @@ iptables -I INPUT -p udp -s 127.0.0.1 -d 127.0.0.1  -j ACCEPT
 
 ###################### BLOQUEIOS REDE INTERNA PARA FORA ##################################
 
-#BLOQUEIO DE DOMINIOS
-
-# Lista de domínios a serem bloqueados
-DOMAINS=("www.terra.comm" "time.windows.com" "www.facebook.com")
-
-# Para cada domínio, resolve o IP e adiciona a regra no iptables
-for DOMAIN in "${DOMAINS[@]}"
-do
-  # Resolve o IP
-  IP=$(dig +short $DOMAIN)
-
-  # Verifica se o comando 'dig' retornou um IP
-  if [ -z "$IP" ]; then
-    echo "Erro: Não foi possível resolver o domínio $DOMAIN"
-    continue
-  fi
-
-  # Para cada IP resolvido, adiciona a regra no iptables
-  for ip in $IP; do
-    echo "Bloqueando o IP $ip do domínio $DOMAIN"
-    sudo iptables -I FORWARD -d $ip -j DROP
-  done
-done
-
-
-
 #BLOQUEIO AO SMTP PARA OS ENDEREÇOS INTERNOS
 iptables -A FORWARD -i $LAN -p tcp -m iprange --src-range 10.10.10.15-10.10.10.18 -d 0/0 --dport 587 -j DROP
 
