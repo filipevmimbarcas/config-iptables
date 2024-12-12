@@ -1,8 +1,7 @@
-
 #! /bin/bash
 
-WAN='enp0s3'
-LAN='enp0s8'
+WAN='ens33'
+LAN='ens36'
 
 REDE_INTERNA='10.10.10.0/24'
 
@@ -36,15 +35,25 @@ iptables -A INPUT -i $WAN -p icmp -j ACCEPT
 iptables -A INPUT -i $LAN -p icmp -j ACCEPT
 
 
-
 # Libera SSH na porta 22
 iptables -I INPUT -i $WAN -p tcp  -s 0/0 --dport 22 -j ACCEPT
 iptables -I INPUT -i $LAN -p tcp  -s 0/0 --dport 22 -j ACCEPT
 
-# Libera DNS (rede interna para externa)
-iptables -I INPUT -i $LAN -p udp -s 0/0 --dport 53  -j ACCEPT
+# Permitir consultas DNS de clientes externos
+sudo iptables -A INPUT -p udp --dport 53 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 53 -j ACCEPT
 
+# Permitir respostas DNS para clientes externos
+sudo iptables -A OUTPUT -p udp --sport 53 -j ACCEPT
+sudo iptables -A OUTPUT -p tcp --sport 53 -j ACCEPT
 
+# Permitir consultas DNS do servidor para outros servidores DNS
+sudo iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+sudo iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+
+# Permitir respostas DNS de outros servidores para o servidor
+sudo iptables -A INPUT -p udp --sport 53 -j ACCEPT
+sudo iptables -A INPUT -p tcp --sport 53 -j ACCEPT
 
 # Mantem o estado das conexoes da interface de loopback
 iptables -I INPUT  -s 127.0.0.1  -m state --state RELATED,ESTABLISHED -j ACCEPT
@@ -55,12 +64,69 @@ iptables -I OUTPUT  -s 127.0.0.1  -m state --state RELATED,ESTABLISHED -j ACCEPT
 iptables -A POSTROUTING -t nat -o $WAN -s $REDE_INTERNA -j MASQUERADE
 
 
-# ICMP
-iptables -A FORWARD -i $LAN -p icmp -s $REDE_INTERNA -d 0/0 -j ACCEPT
-# DNS
-iptables -A FORWARD -i $LAN -p udp -s $REDE_INTERNA -d 0/0 --dport 53 -m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
-
-
 # Libera todos os acesso originados de localhost para localhost
 iptables -I INPUT -p tcp -s 127.0.0.1 -d 127.0.0.1  -j ACCEPT
 iptables -I INPUT -p udp -s 127.0.0.1 -d 127.0.0.1  -j ACCEPT
+
+
+
+###################### BLOQUEIOS REDE INTERNA PARA FORA ##################################
+
+#BLOQUEIO DE DOMINIOS
+
+# Lista de domínios a serem bloqueados
+DOMAINS=("www.terra.comm" "time.windows.com" "www.facebook.com")
+
+# Para cada domínio, resolve o IP e adiciona a regra no iptables
+for DOMAIN in "${DOMAINS[@]}"
+do
+  # Resolve o IP
+  IP=$(dig +short $DOMAIN)
+
+  # Verifica se o comando 'dig' retornou um IP
+  if [ -z "$IP" ]; then
+    echo "Erro: Não foi possível resolver o domínio $DOMAIN"
+    continue
+  fi
+
+  # Para cada IP resolvido, adiciona a regra no iptables
+  for ip in $IP; do
+    echo "Bloqueando o IP $ip do domínio $DOMAIN"
+    sudo iptables -I FORWARD -d $ip -j DROP
+  done
+done
+
+
+
+#BLOQUEIO AO SMTP PARA OS ENDEREÇOS INTERNOS
+iptables -A FORWARD -i $LAN -p tcp -m iprange --src-range 10.10.10.15-10.10.10.18 -d 0/0 --dport 587 -j DROP
+
+
+###################### REDE INTERNA PARA FORA ##################################
+
+#LIBERA ICMP
+iptables -A FORWARD -i $LAN -p icmp -s $REDE_INTERNA -d 0/0 -j ACCEPT
+# Libera HTTPS
+iptables -A FORWARD -i $LAN -p tcp -s $REDE_INTERNA -d 0/0 --dport 443 -j ACCEPT
+#Libera HTTP
+iptables -A FORWARD -i $LAN -p tcp -s $REDE_INTERNA -d 0/0 --dport 80 -j ACCEPT
+#Libera SSH
+iptables -A FORWARD -i $LAN -p tcp -s $REDE_INTERNA -d 0/0 --dport 22 -j ACCEPT
+# Libera Mysql
+iptables -A FORWARD -i $LAN -p tcp -s $REDE_INTERNA -d 0/0 --dport 3306 -j ACCEPT
+# Libera Postgres
+iptables -A FORWARD -i $LAN -p tcp -s $REDE_INTERNA -d 0/0 --dport 5432 -j ACCEPT
+# Libera RDP
+iptables -A FORWARD -i $LAN -p tcp -s $REDE_INTERNA -d 0/0 --dport 3389 -j ACCEPT
+#libera telnet
+iptables -A FORWARD -i $LAN -p tcp -s $REDE_INTERNA -d 0/0 --dport 23 -j ACCEPT
+#Libera SMTP
+iptables -A FORWARD -i $LAN -p tcp -s $REDE_INTERNA -d 0/0 --dport 587 -j ACCEPT
+#libera POP3
+iptables -A FORWARD -i $LAN -p tcp -s $REDE_INTERNA -d 0/0 --dport 110 -j ACCEPT
+#Libera SNMP
+iptables -A FORWARD -i $LAN -p udp -s $REDE_INTERNA -d 0/0 --dport 161 -j ACCEPT
+#Libera NTP
+iptables -A FORWARD -i $LAN -p udp -s $REDE_INTERNA -d 0/0 --dport 123 -j ACCEPT
+
+####################################################################################
